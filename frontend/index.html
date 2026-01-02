@@ -86,6 +86,19 @@
                             <option value="ollama">🦙 Ollama (Local)</option>
                         </select>
                     </div>
+                    <label class="memory-toggle" title="Use conversation history for follow-up questions">
+                        <input type="checkbox" id="memoryToggle" checked>
+                        <span class="toggle-label">💬 Memory</span>
+                    </label>
+                    <button class="theme-toggle" id="themeToggle" title="Toggle dark/light theme">
+                        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2"/>
+                            <path d="M12 1V3M12 21V23M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M1 12H3M21 12H23M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
                     <button class="clear-chat-btn" id="clearChatBtn" title="Clear conversation">
                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -150,6 +163,30 @@
     <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
         <p id="loadingText">Processing...</p>
+    </div>
+
+    <!-- Source Modal -->
+    <div class="source-modal-overlay" id="sourceModalOverlay" onclick="closeSourceModal(event)">
+        <div class="source-modal" onclick="event.stopPropagation()">
+            <div class="source-modal-header">
+                <h3>
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path
+                            d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z"
+                            stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    <span id="sourceModalTitle">Source Document</span>
+                </h3>
+                <button class="source-modal-close" onclick="closeSourceModal()">
+                    <svg viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                </button>
+            </div>
+            <div class="source-modal-body">
+                <div class="source-chunk-text" id="sourceChunkText"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast Container -->

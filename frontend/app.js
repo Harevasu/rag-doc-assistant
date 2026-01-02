@@ -23,7 +23,9 @@ const elements = {
     loadingOverlay: document.getElementById('loadingOverlay'),
     loadingText: document.getElementById('loadingText'),
     toastContainer: document.getElementById('toastContainer'),
-    providerSelect: document.getElementById('providerSelect')
+    providerSelect: document.getElementById('providerSelect'),
+    memoryToggle: document.getElementById('memoryToggle'),
+    themeToggle: document.getElementById('themeToggle')
 };
 
 // Application State
@@ -31,7 +33,10 @@ let state = {
     documents: [],
     chatHistory: [],
     isProcessing: false,
-    currentProvider: 'gemini'  // Default provider
+    currentProvider: 'gemini',  // Default provider
+    useMemory: true,  // Use conversation history
+    indexingStatus: {},  // Track indexing progress per document
+    currentTheme: 'dark'  // Default theme
 };
 
 // ===== Initialization =====
@@ -40,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initializeApp() {
+    loadTheme();
     setupEventListeners();
     await checkServerStatus();
     await loadProviders();
@@ -65,6 +71,12 @@ function setupEventListeners() {
 
     // Provider selection
     elements.providerSelect.addEventListener('change', handleProviderChange);
+
+    // Memory toggle
+    elements.memoryToggle.addEventListener('change', handleMemoryToggle);
+
+    // Theme toggle
+    elements.themeToggle.addEventListener('click', toggleTheme);
 }
 
 // ===== Provider Management =====
@@ -96,6 +108,35 @@ async function loadProviders() {
 function handleProviderChange(e) {
     state.currentProvider = e.target.value;
     showToast('success', 'Provider Changed', `Now using ${e.target.options[e.target.selectedIndex].text}`);
+}
+
+function handleMemoryToggle(e) {
+    state.useMemory = e.target.checked;
+    showToast('success', 'Memory ' + (state.useMemory ? 'Enabled' : 'Disabled'),
+        state.useMemory ? 'Follow-up questions will use conversation history' : 'Each query is now isolated');
+}
+
+// ===== Theme Management =====
+function loadTheme() {
+    const savedTheme = localStorage.getItem('docassist-theme') || 'dark';
+    state.currentTheme = savedTheme;
+    applyTheme(savedTheme);
+}
+
+function toggleTheme() {
+    const newTheme = state.currentTheme === 'dark' ? 'light' : 'dark';
+    state.currentTheme = newTheme;
+    applyTheme(newTheme);
+    localStorage.setItem('docassist-theme', newTheme);
+    showToast('success', 'Theme Changed', `Switched to ${newTheme} mode`);
+}
+
+function applyTheme(theme) {
+    if (theme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
 }
 
 function setupExampleQueries() {
@@ -144,15 +185,77 @@ async function loadDocuments() {
             }
 
             // Check if any documents are still "indexing" (0 chunks)
-            const isIndexing = state.documents.some(doc => doc.total_chunks === 0);
-            if (isIndexing) {
-                // Poll every 3 seconds if indexing is in progress
-                setTimeout(loadDocuments, 3000);
+            const indexingDocs = state.documents.filter(doc => doc.total_chunks === 0);
+            if (indexingDocs.length > 0) {
+                // Fetch detailed indexing status
+                await fetchIndexingStatus();
+                // Poll every 2 seconds if indexing is in progress
+                setTimeout(loadDocuments, 2000);
             }
         }
     } catch (error) {
         console.error('Error loading documents:', error);
     }
+}
+
+async function fetchIndexingStatus() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/documents/indexing`);
+        if (response.ok) {
+            const data = await response.json();
+            const oldStatus = JSON.stringify(state.indexingStatus);
+            state.indexingStatus = data.indexing_documents;
+            
+            // Update UI if status changed
+            if (oldStatus !== JSON.stringify(state.indexingStatus)) {
+                updateIndexingProgress();
+            }
+            
+            // Check for newly completed documents
+            for (const docId of Object.keys(state.indexingStatus)) {
+                const status = state.indexingStatus[docId];
+                if (status.status === 'completed') {
+                    showToast('success', 'Indexing Complete', `${status.filename} is ready for queries!`);
+                } else if (status.status === 'failed') {
+                    showToast('error', 'Indexing Failed', `${status.filename}: ${status.error || 'Unknown error'}`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching indexing status:', error);
+    }
+}
+
+function updateIndexingProgress() {
+    // Update document items with detailed progress
+    for (const [docId, status] of Object.entries(state.indexingStatus)) {
+        const docItem = document.querySelector(`.document-item[data-id="${docId}"]`);
+        if (docItem) {
+            const metaEl = docItem.querySelector('.document-meta');
+            if (metaEl && status.status === 'processing') {
+                let progressText = status.current_step;
+                if (status.estimated_chunks > 0) {
+                    const percent = Math.round((status.chunks_processed / status.estimated_chunks) * 100);
+                    progressText = `${status.current_step} (${percent}%)`;
+                }
+                if (status.eta_seconds && status.eta_seconds > 0) {
+                    progressText += ` • ETA: ${formatTime(status.eta_seconds)}`;
+                } else if (status.elapsed_seconds) {
+                    progressText += ` • ${formatTime(status.elapsed_seconds)} elapsed`;
+                }
+                metaEl.textContent = progressText;
+            }
+        }
+    }
+}
+
+function formatTime(seconds) {
+    if (seconds < 60) {
+        return `${Math.round(seconds)}s`;
+    }
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${mins}m ${secs}s`;
 }
 
 function renderDocuments() {
@@ -169,8 +272,27 @@ function renderDocuments() {
 
     elements.documentsList.innerHTML = state.documents.map(doc => {
         const isIndexing = doc.total_chunks === 0;
+        const indexStatus = state.indexingStatus[doc.id];
+        
+        // Determine the status text
+        let statusText = `${doc.total_chunks} chunks indexed`;
+        let statusClass = '';
+        
+        if (isIndexing) {
+            statusClass = 'indexing';
+            if (indexStatus) {
+                statusText = indexStatus.current_step || 'Processing...';
+                if (indexStatus.estimated_chunks > 0 && indexStatus.chunks_processed > 0) {
+                    const percent = Math.round((indexStatus.chunks_processed / indexStatus.estimated_chunks) * 100);
+                    statusText += ` (${percent}%)`;
+                }
+            } else {
+                statusText = 'Starting...';
+            }
+        }
+        
         return `
-            <div class="document-item ${isIndexing ? 'indexing' : ''}" data-id="${doc.id}">
+            <div class="document-item ${statusClass}" data-id="${doc.id}">
                 <div class="document-icon">
                     ${isIndexing
                 ? `<div class="spinner-small"></div>`
@@ -182,9 +304,11 @@ function renderDocuments() {
                 </div>
                 <div class="document-info">
                     <div class="document-name" title="${doc.filename}">${doc.filename}</div>
-                    <div class="document-meta">${isIndexing ? 'Indexing...' : `${doc.total_chunks} chunks indexed`}</div>
+                    <div class="document-meta">${statusText}</div>
+                    ${isIndexing && indexStatus && indexStatus.elapsed_seconds ? 
+                        `<div class="document-time">${formatTime(indexStatus.elapsed_seconds)} elapsed${indexStatus.eta_seconds ? ` • ETA: ${formatTime(indexStatus.eta_seconds)}` : ''}</div>` : ''}
                 </div>
-                <button class="document-delete" onclick="deleteDocument('${doc.id}')" title="Remove document">
+                <button class="document-delete" onclick="deleteDocument('${doc.id}')" title="Remove document" ${isIndexing ? 'disabled' : ''}>
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
@@ -317,42 +441,68 @@ async function handleSendMessage() {
     // Add user message
     addMessage('user', question);
 
-    // Add loading message
-    const loadingId = addLoadingMessage();
+    // Add streaming message placeholder
+    const streamingId = addStreamingMessage();
+
+    let fullAnswer = '';
+    let sources = [];
 
     try {
-        const response = await fetch(`${API_BASE_URL}/query`, {
+        const response = await fetch(`${API_BASE_URL}/query/stream`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 question: question,
-                chat_history: state.chatHistory.slice(-6),
+                chat_history: state.useMemory ? state.chatHistory.slice(-6) : [],
                 provider: state.currentProvider
             })
         });
 
-        if (response.ok) {
-            const result = await response.json();
-
-            // Remove loading message
-            removeMessage(loadingId);
-
-            // Add assistant response
-            addMessage('assistant', result.answer, result.sources);
-
-            // Update chat history
-            state.chatHistory.push(
-                { role: 'user', content: question },
-                { role: 'assistant', content: result.answer }
-            );
-        } else {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to get response');
+        if (!response.ok) {
+            throw new Error('Failed to get streaming response');
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+
+                        if (data.type === 'sources') {
+                            sources = data.sources;
+                        } else if (data.type === 'token') {
+                            fullAnswer += data.content;
+                            updateStreamingMessage(streamingId, fullAnswer);
+                        } else if (data.type === 'done') {
+                            // Finalize message with sources
+                            finalizeStreamingMessage(streamingId, fullAnswer, sources);
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            }
+        }
+
+        // Update chat history
+        state.chatHistory.push(
+            { role: 'user', content: question },
+            { role: 'assistant', content: fullAnswer }
+        );
+
     } catch (error) {
-        removeMessage(loadingId);
+        removeMessage(streamingId);
         addMessage('assistant', `Sorry, I encountered an error: ${error.message}`);
         showToast('error', 'Query Failed', error.message);
     }
@@ -360,6 +510,7 @@ async function handleSendMessage() {
     state.isProcessing = false;
     scrollToBottom();
 }
+
 
 function addMessage(role, content, sources = []) {
     const messageId = `msg-${Date.now()}`;
@@ -384,17 +535,35 @@ function addMessage(role, content, sources = []) {
                 </svg>
                 Sources
             </div>
-            ${sources.map(source => `
-                <div class="source-item">
+            ${sources.map(source => {
+        const score = source.relevance_score;
+        let levelClass, levelIcon, levelLabel;
+        if (score >= 70) {
+            levelClass = 'relevance-high';
+            levelIcon = '🟢';
+            levelLabel = 'High';
+        } else if (score >= 40) {
+            levelClass = 'relevance-medium';
+            levelIcon = '🟡';
+            levelLabel = 'Medium';
+        } else {
+            levelClass = 'relevance-low';
+            levelIcon = '🔴';
+            levelLabel = 'Low';
+        }
+        return `
+                <div class="source-item" data-chunk="${encodeURIComponent(source.chunk_text || '')}" data-filename="${source.filename}" onclick="showSourceModal(this)">
                     <div class="source-icon">
                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2"/>
                         </svg>
                     </div>
                     <span class="source-name">${source.filename}</span>
-                    <span class="source-relevance">${source.relevance_score}% match</span>
+                    <span class="source-relevance ${levelClass}" title="Relevance Score: ${score}%">
+                        ${levelIcon} ${levelLabel} (${score}%)
+                    </span>
                 </div>
-            `).join('')}
+            `}).join('')}
         </div>
     ` : '';
 
@@ -460,6 +629,136 @@ function removeMessage(messageId) {
     }
 }
 
+function addStreamingMessage() {
+    const messageId = `stream-${Date.now()}`;
+
+    const messageHtml = `
+        <div class="message assistant streaming" id="${messageId}">
+            <div class="message-header">
+                <div class="message-avatar">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <span class="message-sender">DocAssist</span>
+            </div>
+            <div class="message-content">
+                <div class="message-text">
+                    <span class="thinking-text">
+                        <div class="typing-indicator">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                        Thinking...
+                    </span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    elements.messagesContainer.insertAdjacentHTML('beforeend', messageHtml);
+    scrollToBottom();
+
+    return messageId;
+}
+
+function updateStreamingMessage(messageId, content) {
+    const message = document.getElementById(messageId);
+    if (message) {
+        const textContainer = message.querySelector('.message-text');
+        const formattedContent = formatMessageContent(content);
+        textContainer.innerHTML = `
+            <span class="streaming-text">${formattedContent}</span>
+            <span class="streaming-cursor"></span>
+        `;
+        scrollToBottom();
+    }
+}
+
+function finalizeStreamingMessage(messageId, content, sources) {
+    const message = document.getElementById(messageId);
+    if (message) {
+        message.classList.remove('streaming');
+
+        const formattedContent = formatMessageContent(content);
+        const sourcesHtml = buildSourcesHtml(sources);
+
+        const contentContainer = message.querySelector('.message-content');
+        contentContainer.innerHTML = `
+            <div class="message-text">${formattedContent}</div>
+            ${sourcesHtml}
+        `;
+        scrollToBottom();
+    }
+}
+
+function buildSourcesHtml(sources) {
+    if (!sources || sources.length === 0) return '';
+
+    return `
+        <div class="message-sources">
+            <div class="sources-header">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                Sources
+            </div>
+            ${sources.map(source => {
+        const score = source.relevance_score;
+        let levelClass, levelIcon, levelLabel;
+        if (score >= 70) {
+            levelClass = 'relevance-high';
+            levelIcon = '🟢';
+            levelLabel = 'High';
+        } else if (score >= 40) {
+            levelClass = 'relevance-medium';
+            levelIcon = '🟡';
+            levelLabel = 'Medium';
+        } else {
+            levelClass = 'relevance-low';
+            levelIcon = '🔴';
+            levelLabel = 'Low';
+        }
+        return `
+                <div class="source-item" data-chunk="${encodeURIComponent(source.chunk_text || '')}" data-filename="${source.filename}" onclick="showSourceModal(this)">
+                    <div class="source-icon">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </div>
+                    <span class="source-name">${source.filename}</span>
+                    <span class="source-relevance ${levelClass}" title="Relevance Score: ${score}%">
+                        ${levelIcon} ${levelLabel} (${score}%)
+                    </span>
+                </div>
+            `}).join('')}
+        </div>
+        ${getRelevanceWarning(sources)}
+    `;
+}
+
+function getRelevanceWarning(sources) {
+    const maxScore = Math.max(...sources.map(s => s.relevance_score || 0));
+
+    if (maxScore < 40) {
+        return `
+            <div class="relevance-warning">
+                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" stroke="currentColor" stroke-width="2"/>
+                    <path d="M12 9v4M12 17h.01" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                ⚠️ Answer may be weak due to low document relevance. Consider rephrasing your question.
+            </div>
+        `;
+    }
+    return '';
+}
+
+
+
 function formatMessageContent(content) {
     // Convert markdown-like formatting to HTML
     return content
@@ -524,6 +823,37 @@ function removeToast(toastId) {
     }
 }
 
-// Make deleteDocument and removeToast available globally
+// ===== Source Modal =====
+function showSourceModal(element) {
+    const chunkText = decodeURIComponent(element.dataset.chunk || '');
+    const filename = element.dataset.filename || 'Source Document';
+
+    if (!chunkText) {
+        showToast('warning', 'No Preview', 'Source text not available for this chunk.');
+        return;
+    }
+
+    document.getElementById('sourceModalTitle').textContent = filename;
+    document.getElementById('sourceChunkText').textContent = chunkText;
+    document.getElementById('sourceModalOverlay').classList.add('active');
+}
+
+function closeSourceModal(event) {
+    if (event && event.target !== document.getElementById('sourceModalOverlay')) {
+        return;
+    }
+    document.getElementById('sourceModalOverlay').classList.remove('active');
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeSourceModal();
+    }
+});
+
+// Make deleteDocument, removeToast, and modal functions available globally
 window.deleteDocument = deleteDocument;
 window.removeToast = removeToast;
+window.showSourceModal = showSourceModal;
+window.closeSourceModal = closeSourceModal;

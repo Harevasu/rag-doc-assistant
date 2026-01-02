@@ -14,28 +14,28 @@ from config import (
     LLM_MODEL,
     TOP_K_RESULTS
 )
-from vector_store import search
+from vector_store import search, hybrid_search
 
 
-SYSTEM_PROMPT = """You are a helpful document assistant. Your role is to answer questions based on the provided document context.
+SYSTEM_PROMPT = """You are a helpful document assistant. Answer questions based ONLY on the provided context.
 
-Guidelines:
-1. Answer questions accurately based ONLY on the provided context
-2. If the context doesn't contain enough information to answer, say so clearly
-3. Cite specific parts of the documents when relevant
-4. Be concise but thorough
-5. If asked about something not in the documents, clarify that you can only answer based on the uploaded documents
+GUIDELINES:
+1. Base your answers exclusively on the document context provided
+2. If information is not in the context, clearly state "I cannot find this in the documents"
+3. Quote relevant text from documents to support your answers
+4. Be concise yet thorough
+5. Respond in a natural, conversational way
 
-IMPORTANT - For Multiple Choice Questions (MCQs):
-- If the document contains an MCQ with options and an "ANSWER:" line, USE THAT EXACT ANSWER
-- Do NOT make up your own answer - extract the answer directly from the document
-- Quote the answer as it appears in the source document
-- Example: If you see "ANSWER: B" in the document, report that B is the correct answer
+IMPORTANT - Detecting Question Type:
+- If the USER'S QUESTION explicitly asks about options A, B, C, D (e.g., "Which option is correct?" or "What is the answer to question 5?"), THEN format your response as: "According to the document, the answer is [LETTER]."
+- For ALL OTHER questions (even if the document contains MCQ content), provide a normal explanatory answer WITHOUT mentioning answer letters.
 
-Always maintain a helpful, professional tone."""
+Example: If user asks "What is a debtor?" → Explain what a debtor is based on the document.
+Example: If user asks "What is the answer to question 1?" → Find and report the answer letter."""
 
 
-def retrieve_context(query: str, top_k: int = TOP_K_RESULTS, min_score: float = 0.5) -> List[Dict[str, Any]]:
+
+def retrieve_context(query: str, top_k: int = TOP_K_RESULTS, min_score: float = 0.3, use_hybrid: bool = True) -> List[Dict[str, Any]]:
     """
     Retrieve relevant document chunks for a query.
     
@@ -43,18 +43,31 @@ def retrieve_context(query: str, top_k: int = TOP_K_RESULTS, min_score: float = 
         query: User's question
         top_k: Number of chunks to retrieve
         min_score: Minimum similarity score (0-1) to include a chunk
+        use_hybrid: Whether to use hybrid search (semantic + keyword)
         
     Returns:
         List of relevant chunks with metadata
     """
-    results = search(query, top_k=top_k)
+    # Use hybrid search for better accuracy
+    if use_hybrid:
+        results = hybrid_search(query, top_k=top_k)
+        # For hybrid search, use the hybrid_score for filtering
+        score_key = "hybrid_score"
+    else:
+        results = search(query, top_k=top_k)
+        score_key = "score"
     
     # Filter out low-relevance chunks to avoid confusing the LLM
-    filtered_results = [r for r in results if r.get("score", 0) >= min_score]
+    filtered_results = [r for r in results if r.get(score_key, 0) >= min_score]
     
-    # If no results meet the threshold, return the best one anyway
+    # If no results meet the threshold, try with a lower threshold
     if not filtered_results and results:
-        filtered_results = [results[0]]
+        # Include any results with score > 0.1 (very low threshold)
+        filtered_results = [r for r in results if r.get(score_key, 0) >= 0.1]
+    
+    # If still nothing, return top 3 results anyway (for debugging visibility)
+    if not filtered_results and results:
+        filtered_results = results[:3]
     
     return filtered_results
 
@@ -101,16 +114,19 @@ def format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for chunk in chunks:
         doc_id = chunk["metadata"].get("document_id")
         filename = chunk["metadata"].get("filename", "Unknown")
+        chunk_text = chunk.get("text", "")
         
         if doc_id not in seen_docs:
             seen_docs.add(doc_id)
             sources.append({
                 "document_id": doc_id,
                 "filename": filename,
-                "relevance_score": round(chunk.get("score", 0) * 100, 1)
+                "relevance_score": round(chunk.get("score", 0) * 100, 1),
+                "chunk_text": chunk_text[:500] + "..." if len(chunk_text) > 500 else chunk_text
             })
     
     return sources
+
 
 
 def generate_response(
@@ -272,3 +288,58 @@ def query_documents(
         "provider": used_provider
     }
 
+
+def generate_response_stream(
+    query: str,
+    context: str,
+    chat_history: List[Dict[str, str]] = None,
+    provider: str = None
+):
+    """
+    Stream response tokens using Ollama.
+    
+    Yields:
+        String tokens as they are generated
+    """
+    from config import LLM_PROVIDER
+    
+    active_provider = provider.lower() if provider else LLM_PROVIDER
+    
+    # Build the prompt
+    prompt = f"""{SYSTEM_PROMPT}
+
+Based on the following document excerpts, please answer the question.
+
+DOCUMENT CONTEXT:
+{context}
+
+QUESTION: {query}
+
+Please provide a helpful, accurate answer based on the context above. If the context doesn't contain relevant information, say so."""
+
+    # Add chat history context if provided
+    if chat_history:
+        history_text = "\n".join([
+            f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+            for msg in chat_history[-4:]
+        ])
+        prompt = f"Previous conversation:\n{history_text}\n\n{prompt}"
+
+    # Stream with Ollama
+    if active_provider == "ollama":
+        import ollama
+        client = ollama.Client(host=OLLAMA_HOST)
+        
+        stream = client.chat(
+            model=OLLAMA_LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+        
+        for chunk in stream:
+            if chunk.get('message', {}).get('content'):
+                yield chunk['message']['content']
+    else:
+        # For non-Ollama providers, yield full response at once
+        response, _ = generate_response(query, context, chat_history, provider)
+        yield response

@@ -26,7 +26,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 
 # Ollama Configuration
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "llama3.2")
+OLLAMA_LLM_MODEL = os.getenv("OLLAMA_LLM_MODEL", "phi3:mini")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 # Gemini API Keys (for fallback or if user prefers Gemini)
@@ -50,7 +50,7 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 
 # Vector Store Configuration
 COLLECTION_NAME = "documents"
-TOP_K_RESULTS = 5
+TOP_K_RESULTS = 8
 
 # Print configuration
 print(f"🔧 LLM Provider: {LLM_PROVIDER.upper()}")

@@ -26,12 +26,13 @@ def get_ollama_client():
     return _ollama_client
 
 
-def get_embedding(text: str) -> List[float]:
+def get_embedding(text: str, task_type: str = "retrieval_query") -> List[float]:
     """
     Generate embedding for a single text.
     
     Args:
         text: Text to embed
+        task_type: For Gemini - "retrieval_document" for docs, "retrieval_query" for queries
         
     Returns:
         Embedding vector as a list of floats
@@ -44,16 +45,17 @@ def get_embedding(text: str) -> List[float]:
     if LLM_PROVIDER == "ollama":
         return _get_ollama_embedding(text)
     else:
-        return _get_gemini_embedding(text)
+        return _get_gemini_embedding(text, task_type=task_type)
 
 
-def get_embeddings(texts: List[str]) -> List[List[float]]:
+def get_embeddings(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """
-    Generate embeddings for multiple texts.
+    Generate embeddings for multiple texts (typically documents).
     Uses native batching for Gemini and parallel requests for Ollama.
     
     Args:
         texts: List of texts to embed
+        task_type: For Gemini - "retrieval_document" for docs, "retrieval_query" for queries
         
     Returns:
         List of embedding vectors
@@ -68,7 +70,7 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
         cleaned_texts.append(cleaned if cleaned else " ")
 
     if LLM_PROVIDER == "gemini":
-        return _get_gemini_embeddings_batch(cleaned_texts)
+        return _get_gemini_embeddings_batch(cleaned_texts, task_type=task_type)
     
     # For Ollama, continue using parallel processing
     max_workers = min(10, len(cleaned_texts)) # Dynamic workers
@@ -77,7 +79,7 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_index = {
-            executor.submit(get_embedding, text): i 
+            executor.submit(get_embedding, text, task_type): i 
             for i, text in enumerate(cleaned_texts)
         }
         
@@ -92,7 +94,7 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
     return embeddings
 
 
-def _get_gemini_embeddings_batch(texts: List[str]) -> List[List[float]]:
+def _get_gemini_embeddings_batch(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """Generate embeddings for a batch of texts using Gemini API."""
     import google.generativeai as genai
     
@@ -113,9 +115,16 @@ def _get_gemini_embeddings_batch(texts: List[str]) -> List[List[float]]:
             result = genai.embed_content(
                 model=EMBEDDING_MODEL,
                 content=batch,
-                task_type="retrieval_document"
+                task_type=task_type
             )
-            all_embeddings.extend(result['embeddings'])
+            # For batch input, result['embedding'] is a list of embeddings
+            embeddings_result = result['embedding']
+            if isinstance(embeddings_result[0], list):
+                # Batch result: list of embedding vectors
+                all_embeddings.extend(embeddings_result)
+            else:
+                # Single result wrapped in list: just the embedding vector
+                all_embeddings.append(embeddings_result)
         except Exception as e:
             print(f"❌ Error in Gemini batch embedding: {e}")
             # Fallback to individual embeddings or zero vectors for this batch
@@ -135,7 +144,7 @@ def _get_ollama_embedding(text: str) -> List[float]:
     return response['embedding']
 
 
-def _get_gemini_embedding(text: str) -> List[float]:
+def _get_gemini_embedding(text: str, task_type: str = "retrieval_query") -> List[float]:
     """Generate embedding using Gemini API."""
     import google.generativeai as genai
     
@@ -147,6 +156,6 @@ def _get_gemini_embedding(text: str) -> List[float]:
     result = genai.embed_content(
         model=EMBEDDING_MODEL,
         content=text,
-        task_type="retrieval_document"
+        task_type=task_type
     )
     return result['embedding']

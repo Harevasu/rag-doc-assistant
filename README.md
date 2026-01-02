@@ -5,7 +5,7 @@ An AI-powered Document Assistant that uses **Retrieval-Augmented Generation (RAG
 ![RAG Architecture](https://img.shields.io/badge/RAG-Retrieval%20Augmented%20Generation-blue)
 ![Python](https://img.shields.io/badge/Python-3.9+-green)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-red)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+
 
 ## ✨ Features
 
@@ -44,7 +44,7 @@ graph LR
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/rag-doc-assistant.git
+git clone https://github.com/<your-username>/rag-doc-assistant.git
 cd rag-doc-assistant
 
 # Create virtual environment
@@ -71,7 +71,7 @@ LLM_PROVIDER=ollama
 
 # Ollama Configuration (for local LLM)
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_LLM_MODEL=llama3.2
+OLLAMA_LLM_MODEL=phi3:mini
 OLLAMA_EMBED_MODEL=nomic-embed-text
 
 # Gemini Configuration (for API-based LLM)
@@ -90,7 +90,7 @@ CHUNK_OVERLAP=50
 
 ```bash
 ollama serve
-ollama pull llama3.2
+ollama pull phi3:mini
 ollama pull nomic-embed-text
 ```
 
@@ -160,8 +160,8 @@ rag-doc-assistant/
 |-----------|------------|
 | **Backend** | Python, FastAPI, Uvicorn |
 | **Vector DB** | ChromaDB |
-| **Embeddings** | Ollama (nomic-embed-text) / Gemini |
-| **LLM** | Ollama (llama3.2) / Gemini / Fine-tuned Flan-T5 |
+| **Embeddings** | Ollama (nomic-embed-text) / Gemini (text-embedding-004) |
+| **LLM** | Ollama (phi3:mini) / Gemini (gemini-2.0-flash) / Fine-tuned Flan-T5 |
 | **PDF Parser** | PyMuPDF |
 | **Frontend** | HTML, CSS, JavaScript |
 
@@ -170,7 +170,8 @@ rag-doc-assistant/
 ### Ollama (Recommended for Offline)
 - Completely free and runs locally
 - Requires [Ollama](https://ollama.ai/) installation
-- Models: `llama3.2`, `nomic-embed-text`
+- Models: `phi3:mini` (default), `llama3.2` (alternative)
+- Embeddings: `nomic-embed-text`
 
 ### Gemini API
 - Fast and powerful cloud-based LLM
@@ -182,8 +183,22 @@ rag-doc-assistant/
 - Best for domain-specific Q&A
 - Run the trainer to generate your model
 
+## ⚠️ Limitations
 
+- Performance depends on chunking strategy
+- Large PDFs may increase indexing time
+- Gemini API subject to quota limits
 
+## 🚧 Future Enhancements
+
+- Hybrid search (BM25 + vector)
+- Metadata filtering (author, date)
+- Streaming responses
+- User authentication
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
 
 ---
 
