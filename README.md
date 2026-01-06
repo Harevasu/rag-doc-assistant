@@ -44,7 +44,7 @@ graph LR
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/rag-doc-assistant.git
+git clone https://github.com/Harevasu/rag-doc-assistant.git
 cd rag-doc-assistant
 
 # Create virtual environment
@@ -193,7 +193,7 @@ rag-doc-assistant/
 
 ```bash
 # Clone the repository
-git clone https://github.com/<your-username>/rag-doc-assistant.git
+git clone https://github.com/Harevasu/rag-doc-assistant.git
 cd rag-doc-assistant
 
 # Copy environment file and configure
