@@ -1,0 +1,62 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+ENV/
+env/
+.eggs/
+*.egg-info/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files (sensitive data)
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Data directories (will be mounted as volumes)
+data/
+uploads/
+models/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Misc
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Large files
+*.pdf
+*.docx
+*.zip
+*.tar.gz

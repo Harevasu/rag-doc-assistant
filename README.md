@@ -142,7 +142,11 @@ rag-doc-assistant/
 │   └── app.js               # Frontend logic
 ├── uploads/                  # Uploaded documents (gitignored)
 ├── data/                     # ChromaDB storage (gitignored)
+├── Dockerfile               # Container build instructions
+├── docker-compose.yml       # Multi-service orchestration
+├── .dockerignore            # Docker build exclusions
 ├── .env.example             # Environment template
+├── .env.docker              # Docker environment template
 └── README.md
 ```
 
@@ -183,6 +187,94 @@ rag-doc-assistant/
 - Best for domain-specific Q&A
 - Run the trainer to generate your model
 
+## 🐳 Docker Deployment
+
+### Quick Start with Docker
+
+```bash
+# Clone the repository
+git clone https://github.com/<your-username>/rag-doc-assistant.git
+cd rag-doc-assistant
+
+# Copy environment file and configure
+cp .env.docker .env
+# Edit .env with your GOOGLE_API_KEY or Ollama settings
+
+# Build and run with Docker Compose
+docker-compose up -d
+
+# View logs
+docker-compose logs -f backend
+```
+
+**Access the application:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+### Docker Commands
+
+```bash
+# Build only
+docker-compose build
+
+# Start services
+docker-compose up -d
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (reset data)
+docker-compose down -v
+
+# View logs
+docker-compose logs -f
+
+# Rebuild after code changes
+docker-compose up -d --build
+```
+
+### Using with Ollama (Local LLM)
+
+To use Ollama from Docker:
+
+1. **Start Ollama on your host machine:**
+   ```bash
+   ollama serve
+   ollama pull phi3:mini
+   ollama pull nomic-embed-text
+   ```
+
+2. **Configure `.env`:**
+   ```env
+   LLM_PROVIDER=ollama
+   OLLAMA_HOST=http://host.docker.internal:11434
+   ```
+
+3. **Start the container:**
+   ```bash
+   docker-compose up -d
+   ```
+
+### Production Deployment
+
+For production on a Linux server:
+
+```bash
+# Build production image
+docker build -t rag-assistant:latest .
+
+# Run with environment file
+docker run -d \
+  --name rag-backend \
+  -p 8000:8000 \
+  -v rag-data:/app/data \
+  -v rag-uploads:/app/uploads \
+  --env-file .env \
+  --restart unless-stopped \
+  rag-assistant:latest
+```
+
 ## ⚠️ Limitations
 
 - Performance depends on chunking strategy
@@ -191,10 +283,12 @@ rag-doc-assistant/
 
 ## 🚧 Future Enhancements
 
-- Hybrid search (BM25 + vector)
+- ~~Hybrid search (BM25 + vector)~~ ✅ Implemented
 - Metadata filtering (author, date)
 - Streaming responses
 - User authentication
+- AWS S3 integration for document storage
+- Kubernetes deployment manifests
 
 ## 📄 License
 

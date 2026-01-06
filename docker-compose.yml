@@ -1,0 +1,83 @@
+# RAG Document Assistant - Docker Compose
+# Easy local development and deployment
+
+services:
+  # ===========================================
+  # Backend API Service
+  # ===========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: rag-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist vector database
+      - rag-data:/app/data
+      # Persist uploaded documents
+      - rag-uploads:/app/uploads
+      # Persist fine-tuned models
+      - rag-models:/app/models
+    environment:
+      # LLM Provider: "ollama" | "gemini" | "finetuned"
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+
+      # Gemini Configuration
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-models/text-embedding-004}
+      - LLM_MODEL=${LLM_MODEL:-gemini-2.0-flash}
+
+      # Ollama Configuration (use host.docker.internal on Windows/Mac)
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_LLM_MODEL=${OLLAMA_LLM_MODEL:-phi3:mini}
+      - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+
+      # Chunking Configuration
+      - CHUNK_SIZE=${CHUNK_SIZE:-512}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP:-50}
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - rag-network
+
+  # ===========================================
+  # Frontend (Optional - Static file server)
+  # ===========================================
+  frontend:
+    image: nginx:alpine
+    container_name: rag-frontend
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+# ===========================================
+# Named Volumes for Data Persistence
+# ===========================================
+volumes:
+  rag-data:
+    name: rag-doc-assistant-data
+  rag-uploads:
+    name: rag-doc-assistant-uploads
+  rag-models:
+    name: rag-doc-assistant-models
+
+# ===========================================
+# Network Configuration
+# ===========================================
+networks:
+  rag-network:
+    name: rag-doc-assistant-network
+    driver: bridge
